@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sector Pulse</title>
+<!--__REFRESH__-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: a market-wide sector map up top with a ranked up/down ladder beside it, then one card per sector (mini map + leaders/laggards), ordered best to worst. Deliberately dark, terminal-style. */
+:root {
+  --bg: #0d1117;
+  --panel: #151b24;
+  --panel-2: #1b2330;
+  --line: #263142;
+  --fg: #e6ebf2;
+  --muted: #8794a8;
+  --up: #22b07d;
+  --up-strong: #12d68e;
+  --down: #e5534b;
+  --down-strong: #ff4f45;
+  --flat: #3a4556;
+  --display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 14px/1.4 var(--display);
+  padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1400px; margin: 0 auto; display: grid; gap: 20px; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.up { color: var(--up-strong); } .down { color: var(--down-strong); } .flatc { color: var(--muted); }
+
+header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; }
+h1 { margin: 0; font-size: 28px; font-weight: 800; font-stretch: 80%; letter-spacing: .01em; text-transform: uppercase; }
+h1 small { display: block; font-size: 12px; font-weight: 600; letter-spacing: .12em; color: var(--muted); font-stretch: 100%; }
+.stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; min-width: 110px; }
+.stat b { display: block; font-size: 18px; }
+.stat span { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.banner { background: #3b2f12; color: #ffd27a; border: 1px solid #6b5420; border-radius: 6px; padding: 8px 12px; font-weight: 600; }
+
+.label { font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+.top { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(260px, 1fr); gap: 16px; }
+@media (max-width: 860px) { .top { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-width: 0; }
+
+.map { position: relative; width: 100%; }
+#sectorMap { height: 380px; }
+.tile {
+  position: absolute; overflow: hidden; border-radius: 3px; cursor: default;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  color: #fff; line-height: 1.1; transition: filter .12s;
+}
+.tile:hover { filter: brightness(1.25); z-index: 2; outline: 2px solid #fff; }
+.tile .t { font-weight: 800; font-stretch: 85%; }
+.tile .p { font-family: var(--mono); font-weight: 700; opacity: .95; }
+.tile .c { font-size: 11px; opacity: .8; margin-top: 2px; }
+.sector-tile { cursor: pointer; }
+
+.ladder { display: grid; gap: 6px; }
+.rung { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 64px; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; border-radius: 4px; padding: 2px 4px; }
+.rung:hover, .rung:focus-visible { background: var(--panel-2); outline: none; }
+.rung .bar-row { display: grid; grid-template-columns: 1fr 1fr; align-items: center; height: 22px; }
+.rung .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rung .half { height: 18px; display: flex; }
+.rung .half.l { justify-content: flex-end; border-right: 1px solid var(--line); }
+.rung .fill { height: 100%; border-radius: 2px; }
+.rung .v { text-align: right; font-weight: 700; }
+.breadth { margin-top: 12px; display: flex; gap: 2px; height: 8px; border-radius: 4px; overflow: hidden; }
+.breadth i { display: block; height: 100%; }
+.breadth-cap { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+.legend { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+.legend .scale { display: flex; } .legend .scale i { width: 26px; height: 10px; display: block; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+@media (max-width: 420px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; scroll-margin-top: 16px; }
+.card.flash { outline: 2px solid var(--fg); }
+.card-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 10px 12px; border-bottom: 3px solid var(--flat); }
+.card-h h3 { margin: 0; font-size: 16px; font-weight: 800; font-stretch: 85%; text-transform: uppercase; letter-spacing: .03em; }
+.card-h .meta { font-size: 11px; color: var(--muted); display: block; font-weight: 500; text-transform: none; letter-spacing: 0; font-stretch: 100%; }
+.card-h .pct { font-size: 18px; font-weight: 700; }
+.card .map { height: 210px; margin: 8px; width: auto; }
+.lists { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 4px 12px 12px; }
+.lists h4 { margin: 0 0 4px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.lists ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.lists li { display: grid; grid-template-columns: 52px 1fr auto; gap: 6px; align-items: baseline; font-size: 13px; padding: 2px 0; border-bottom: 1px dashed var(--line); }
+.lists li:last-child { border-bottom: 0; }
+.lists .tk { font-family: var(--mono); font-weight: 700; font-size: 12px; }
+.lists .nm { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+#tip { position: fixed; pointer-events: none; z-index: 20; background: #0b0f15f2; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; min-width: 160px; box-shadow: 0 6px 24px #0008; }
+#tip b { font-size: 14px; }
+footer { color: var(--muted); font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { .tile { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<div id="tip" hidden></div>
+<script>window.MARKET_DATA = /*__DATA__*/null;</script>
+<script>
+(function () {
+  const D = window.MARKET_DATA;
+  const app = document.getElementById('app');
+  if (!D || !D.stocks || !D.stocks.length) {
+    app.innerHTML = '<div class="banner">No market data yet. Run <code>python sector_dashboard.py</code> to build this page.</div>';
+    return;
+  }
+
+  // ---------- data ----------
+  const stocks = D.stocks.filter(s => isFinite(s.pct));
+  stocks.forEach(s => { if (!(s.cap > 0)) s.cap = 1e9; });
+  const bySector = {};
+  stocks.forEach(s => (bySector[s.s] ||= []).push(s));
+  const sectors = Object.entries(bySector).map(([name, list]) => {
+    const cap = list.reduce((a, s) => a + s.cap, 0);
+    const pct = list.reduce((a, s) => a + s.pct * s.cap, 0) / cap;
+    list.sort((a, b) => b.cap - a.cap);
+    const up = list.filter(s => s.pct > 0).length, down = list.filter(s => s.pct < 0).length;
+    return { name, list, cap, pct, up, down };
+  }).sort((a, b) => b.pct - a.pct);
+  const totalCap = sectors.reduce((a, s) => a + s.cap, 0);
+  const indexPct = sectors.reduce((a, s) => a + s.pct * s.cap, 0) / totalCap;
+  const adv = stocks.filter(s => s.pct > 0).length, dec = stocks.filter(s => s.pct < 0).length, unch = stocks.length - adv - dec;
+
+  // ---------- helpers ----------
+  const fmt = p => (p > 0 ? '+' : p < 0 ? '−' : '') + Math.abs(p).toFixed(2) + '%';
+  const cls = p => p > 0.005 ? 'up' : p < -0.005 ? 'down' : 'flatc';
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const capFmt = c => c >= 1e12 ? '$' + (c / 1e12).toFixed(2) + 'T' : '$' + (c / 1e9).toFixed(1) + 'B';
+  // diverging color: saturates at ±3%
+  function color(p) {
+    const t = Math.max(-1, Math.min(1, p / 3));
+    const flat = [58, 69, 86], up = [14, 168, 108], dn = [214, 50, 48];
+    const to = t >= 0 ? up : dn, k = Math.pow(Math.abs(t), 0.75);
+    const c = flat.map((v, i) => Math.round(v + (to[i] - v) * k));
+    return `rgb(${c[0]},${c[1]},${c[2]})`;
+  }
+
+  // squarified treemap: items [{v,...}] -> [{x,y,w,h,item}]
+  function treemap(items, W, H) {
+    const total = items.reduce((a, i) => a + i.v, 0);
+    if (!total || W <= 0 || H <= 0) return [];
+    const scale = (W * H) / total;
+    const nodes = items.map(i => ({ item: i, a: i.v * scale })).sort((a, b) => b.a - a.a);
+    const out = [];
+    let x = 0, y = 0, w = W, h = H, row = [];
+    const worst = (r, side) => {
+      const s = r.reduce((a, n) => a + n.a, 0); let mx = 0, mn = Infinity;
+      r.forEach(n => { mx = Math.max(mx, n.a); mn = Math.min(mn, n.a); });
+      return Math.max(side * side * mx / (s * s), (s * s) / (side * side * mn));
+    };
+    const layRow = (r) => {
+      const s = r.reduce((a, n) => a + n.a, 0);
+      if (w >= h) { const rw = s / h; let yy = y; r.forEach(n => { const nh = n.a / rw; out.push({ x, y: yy, w: rw, h: nh, item: n.item }); yy += nh; }); x += rw; w -= rw; }
+      else { const rh = s / w; let xx = x; r.forEach(n => { const nw = n.a / rh; out.push({ x: xx, y, w: nw, h: rh, item: n.item }); xx += nw; }); y += rh; h -= rh; }
+    };
+    for (const n of nodes) {
+      const side = Math.min(w, h);
+      if (!row.length || worst(row.concat(n), side) <= worst(row, side)) row.push(n);
+      else { layRow(row); row = [n]; }
+    }
+    if (row.length) layRow(row);
+    return out;
+  }
+
+  // ---------- tooltip ----------
+  const tip = document.getElementById('tip');
+  function showTip(e, html) { tip.innerHTML = html; tip.hidden = false; moveTip(e); }
+  function moveTip(e) {
+    const r = tip.getBoundingClientRect();
+    let x = e.clientX + 14, y = e.clientY + 14;
+    if (x + r.width > innerWidth - 8) x = e.clientX - r.width - 14;
+    if (y + r.height > innerHeight - 8) y = e.clientY - r.height - 14;
+    tip.style.left = Math.max(8, x) + 'px'; tip.style.top = Math.max(8, y) + 'px';
+  }
+  const hideTip = () => { tip.hidden = true; };
+  const stockTip = s => `<b>${esc(s.t)}</b> <span class="${cls(s.pct)} num">${fmt(s.pct)}</span><br>${esc(s.n)}<br><span class="flatc">${esc(s.s)}</span><br><span class="num">${s.price != null ? '$' + s.price.toFixed(2) : ''}</span> <span class="flatc">· ${capFmt(s.cap)}</span>`;
+
+  // ---------- render ----------
+  const date = D.asOf ? new Date(D.asOf + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' }) : '';
+  const best = sectors[0], worst = sectors[sectors.length - 1];
+  const upSectors = sectors.filter(s => s.pct > 0).length;
+  app.innerHTML = `
+    ${D.sample ? '<div class="banner">SAMPLE NUMBERS. This preview uses made-up price moves and rough sizes to show the layout. Run the script to load real market data.</div>' : ''}
+    <header>
+      <h1><small>S&amp;P 500 · 1-day move · ${esc(date)}</small>Sector Pulse</h1>
+      <div class="stats">
+        <div class="stat"><span>S&amp;P 500 (cap-wtd)</span><b class="num ${cls(indexPct)}">${fmt(indexPct)}</b></div>
+        <div class="stat"><span>Sectors up / down</span><b class="num"><span class="up">${upSectors}</span> / <span class="down">${sectors.length - upSectors}</span></b></div>
+        <div class="stat"><span>Stocks up / down</span><b class="num"><span class="up">${adv}</span> / <span class="down">${dec}</span></b></div>
+        <div class="stat"><span>Best · worst sector</span><b style="font-size:14px"><span class="up">${esc(short(best.name))}</span> · <span class="down">${esc(short(worst.name))}</span></b></div>
+      </div>
+    </header>
+    <section class="top">
+      <div class="panel">
+        <p class="label">Sector map · size = market cap, color = today's move</p>
+        <div class="map" id="sectorMap"></div>
+        <div class="legend" style="margin-top:8px">
+          <span>−3%</span><span class="scale">${[-3, -2, -1, 0, 1, 2, 3].map(v => `<i style="background:${color(v)}"></i>`).join('')}</span><span>+3%</span>
+          <span style="margin-left:auto">Click a sector to jump to its leaders</span>
+        </div>
+      </div>
+      <div class="panel">
+        <p class="label">Which sectors are up and down</p>
+        <div class="ladder" id="ladder"></div>
+        <div class="breadth" title="Advancing vs declining stocks">
+          <i style="flex:${adv};background:var(--up)"></i><i style="flex:${unch};background:var(--flat)"></i><i style="flex:${dec};background:var(--down)"></i>
+        </div>
+        <div class="breadth-cap"><span class="up">${adv} advancing</span><span>${unch} flat</span><span class="down">${dec} declining</span></div>
+      </div>
+    </section>
+    <section>
+      <p class="label">Each sector · biggest names mapped, top performers listed</p>
+      <div class="grid" id="cards"></div>
+    </section>
+    <footer>${esc(D.source || '')}${D.generated ? ' · Built ' + esc(D.generated) : ''}${D.prevDate ? ' · Change vs close of ' + esc(D.prevDate) : ''}. Sector move is weighted by market cap.</footer>
+  `;
+  function short(n) { return ({ 'Information Technology': 'Tech', 'Communication Services': 'Comm.', 'Consumer Discretionary': 'Cons. Disc.', 'Consumer Staples': 'Staples', 'Health Care': 'Health', 'Real Estate': 'Real Est.' })[n] || n; }
+  const slug = n => 'sec-' + n.toLowerCase().replace(/[^a-z]+/g, '-');
+  function jump(name) {
+    const el = document.getElementById(slug(name)); if (!el) return;
+    el.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+    el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1400);
+  }
+
+  // ladder
+  const maxAbs = Math.max(0.5, ...sectors.map(s => Math.abs(s.pct)));
+  document.getElementById('ladder').innerHTML = sectors.map(s => {
+    const w = (Math.abs(s.pct) / maxAbs * 100).toFixed(1);
+    const fill = `<div class="fill" style="width:${w}%;background:${color(s.pct)}"></div>`;
+    return `<div class="rung" tabindex="0" data-s="${esc(s.name)}">
+      <span class="name" title="${esc(s.name)}">${esc(s.name)}</span><div class="bar-row">
+        <div class="half l">${s.pct < 0 ? fill : ''}</div><div class="half">${s.pct >= 0 ? fill : ''}</div></div>
+      <span class="v num ${cls(s.pct)}">${fmt(s.pct)}</span></div>`;
+  }).join('');
+  document.querySelectorAll('.rung').forEach(r => {
+    r.addEventListener('click', () => jump(r.dataset.s));
+    r.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); jump(r.dataset.s); } });
+  });
+
+  // cards
+  document.getElementById('cards').innerHTML = sectors.map(s => {
+    const ranked = [...s.list].sort((a, b) => b.pct - a.pct);
+    const top = ranked.slice(0, 5), bot = ranked.slice(-5).reverse();
+    const li = x => `<li><span class="tk">${esc(x.t)}</span><span class="nm" title="${esc(x.n)}">${esc(x.n)}</span><span class="num ${cls(x.pct)}">${fmt(x.pct)}</span></li>`;
+    return `<article class="card" id="${slug(s.name)}">
+      <div class="card-h" style="border-bottom-color:${color(s.pct)}">
+        <h3>${esc(s.name)}<span class="meta">${s.list.length} stocks · <span class="up">${s.up} up</span> · <span class="down">${s.down} down</span> · ${capFmt(s.cap)}</span></h3>
+        <span class="pct num ${cls(s.pct)}">${fmt(s.pct)}</span>
+      </div>
+      <div class="map" data-sector="${esc(s.name)}"></div>
+      <div class="lists">
+        <div><h4>Top performers</h4><ol>${top.map(li).join('')}</ol></div>
+        <div><h4>Biggest laggards</h4><ol>${bot.map(li).join('')}</ol></div>
+      </div>
+    </article>`;
+  }).join('');
+
+  function drawStocks(el, list) {
+    const W = el.clientWidth, H = el.clientHeight, g = 1.5;
+    const rects = treemap(list.map(s => ({ v: s.cap, s })), W, H);
+    el.innerHTML = '';
+    rects.forEach(r => {
+      const s = r.item.s, d = document.createElement('div');
+      d.className = 'tile';
+      Object.assign(d.style, { left: r.x + g / 2 + 'px', top: r.y + g / 2 + 'px', width: Math.max(0, r.w - g) + 'px', height: Math.max(0, r.h - g) + 'px', background: color(s.pct) });
+      const fs = Math.max(9, Math.min(26, Math.sqrt(r.w * r.h) / 4.2));
+      if (r.w > 30 && r.h > 18) d.innerHTML = `<span class="t" style="font-size:${fs}px">${esc(s.t)}</span>` + (r.h > 34 && r.w > 44 ? `<span class="p" style="font-size:${Math.max(9, fs * .62)}px">${fmt(s.pct)}</span>` : '');
+      d.addEventListener('mouseenter', e => showTip(e, stockTip(s)));
+      d.addEventListener('mousemove', moveTip); d.addEventListener('mouseleave', hideTip);
+      el.appendChild(d);
+    });
+  }
+  function drawSectors() {
+    const el = document.getElementById('sectorMap'), W = el.clientWidth, H = el.clientHeight, g = 3;
+    const rects = treemap(sectors.map(s => ({ v: s.cap, s })), W, H);
+    el.innerHTML = '';
+    rects.forEach(r => {
+      const s = r.item.s, d = document.createElement('div');
+      d.className = 'tile sector-tile';
+      Object.assign(d.style, { left: r.x + g / 2 + 'px', top: r.y + g / 2 + 'px', width: r.w - g + 'px', height: r.h - g + 'px', background: color(s.pct) });
+      const fs = Math.max(10, Math.min(22, Math.sqrt(r.w * r.h) / 7));
+      const nm = r.w > 140 ? s.name : short(s.name);
+      d.innerHTML = (r.w > 46 && r.h > 26 ? `<span class="t" style="font-size:${fs}px">${esc(nm)}</span>` : '') +
+        (r.h > 44 && r.w > 46 ? `<span class="p" style="font-size:${fs * .9}px">${fmt(s.pct)}</span>` : '') +
+        (r.h > 78 && r.w > 90 ? `<span class="c">${s.up}▲ ${s.down}▼</span>` : '');
+      const lead = [...s.list].sort((a, b) => b.pct - a.pct)[0];
+      d.addEventListener('mouseenter', e => showTip(e, `<b>${esc(s.name)}</b> <span class="num ${cls(s.pct)}">${fmt(s.pct)}</span><br>${s.up} up · ${s.down} down · ${capFmt(s.cap)}<br><span class="flatc">Leader:</span> ${esc(lead.t)} <span class="num ${cls(lead.pct)}">${fmt(lead.pct)}</span>`));
+      d.addEventListener('mousemove', moveTip); d.addEventListener('mouseleave', hideTip);
+      d.addEventListener('click', () => jump(s.name));
+      el.appendChild(d);
+    });
+  }
+  function drawAll() {
+    drawSectors();
+    document.querySelectorAll('.card .map').forEach(el => drawStocks(el, bySector[el.dataset.sector]));
+  }
+  drawAll();
+  let t; addEventListener('resize', () => { clearTimeout(t); t = setTimeout(drawAll, 120); });
+})();
+</script>
+</body>
+</html>
